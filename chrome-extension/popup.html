@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mirror Ai</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+
+    <!-- 头部 -->
+    <div class="header">
+      <img src="icons/icon48.png" alt="Mirror Ai" class="header-icon">
+      <div>
+        <div class="header-title">Mirror Ai</div>
+        <div class="header-sub">v1.0.0 &nbsp;·&nbsp; WebSocket: 8765</div>
+      </div>
+    </div>
+
+    <!-- 状态卡片 -->
+    <div class="status-card">
+      <div class="status-row">
+        <div class="status-item" id="status-vscode">
+          <div class="dot disconnected" id="dot-vscode"></div>
+          <div class="status-info">
+            <div class="status-name">VSCode 连接</div>
+            <div class="status-desc" id="desc-vscode">未连接</div>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="status-item" id="status-ai">
+          <div class="dot disconnected" id="dot-ai"></div>
+          <div class="status-info">
+            <div class="status-name">Gemini 页面</div>
+            <div class="status-desc" id="desc-ai">未就绪</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 操作按钮 -->
+    <div class="btn-group">
+      <button id="btn-open-web-ai" class="btn btn-primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+          <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+        </svg>
+        打开 Gemini
+      </button>
+      <button id="btn-refresh" class="btn btn-secondary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="23 4 23 10 17 10"/>
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+        </svg>
+        刷新状态
+      </button>
+    </div>
+
+    <!-- 选择器配置（高级） -->
+    <div class="section">
+      <button id="toggle-advanced" class="toggle-btn">
+        <span id="btn-label">⚙ 高级配置（选择器）</span>
+        <span class="toggle-arrow" id="arrow">▶</span>
+      </button>
+      <div id="advanced-panel" class="advanced-panel hidden">
+        <div class="field">
+          <label>输入框选择器</label>
+          <textarea id="sel-input" rows="2" spellcheck="false"></textarea>
+        </div>
+        <div class="field">
+          <label>发送按钮选择器</label>
+          <textarea id="sel-send" rows="2" spellcheck="false"></textarea>
+        </div>
+        <div class="field">
+          <label>停止按钮选择器</label>
+          <textarea id="sel-stop" rows="2" spellcheck="false"></textarea>
+        </div>
+        <div class="field">
+          <label>回复容器选择器</label>
+          <textarea id="sel-response" rows="2" spellcheck="false"></textarea>
+        </div>
+
+        <div class="adv-btns">
+          <button id="btn-save-selectors" class="btn btn-primary btn-sm">保存选择器</button>
+          <button id="btn-reset-selectors" class="btn btn-secondary btn-sm">恢复默认</button>
+        </div>
+        <div id="save-tip" class="save-tip hidden">✓ 已保存并同步到页面</div>
+      </div>
+    </div>
+
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
