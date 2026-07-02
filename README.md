@@ -2,6 +2,8 @@
 
 将 VSCode 代码与 Gemini 网页版连接，实现 AI 辅助编程。
 
+<img width="947" height="748" alt="image" src="https://github.com/user-attachments/assets/bd23b9c4-1062-4ecf-9a6d-89b0ad1e0cbc" />
+
 
 ## 目录结构
 
