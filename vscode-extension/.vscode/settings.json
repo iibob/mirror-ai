@@ -1,0 +1,8 @@
+{
+  "editor.formatOnSave": true,
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "files.watcherExclude": {
+    "**/out/**": true,
+    "**/node_modules/**": true
+  }
+}
