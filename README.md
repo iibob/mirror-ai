@@ -1,4 +1,7 @@
-# Mirror Ai
+<div align="center">
+  <img src="chrome-extension/icons/icon128.png"/>
+  <h1>Mirror Ai</h1>
+</div>
 
 将 VSCode 代码与 Gemini 网页版连接，实现 AI 辅助编程。
 
