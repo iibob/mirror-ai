@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Mirror Ai",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "将 Gemini 与 VSCode 连接，实现 AI 辅助编程",
   "permissions": [
     "storage",
@@ -19,7 +19,7 @@
   "content_scripts": [
     {
       "matches": ["https://gemini.google.com/*"],
-      "js": ["content.js"],
+      "js": ["config.js", "content.js"],
       "run_at": "document_idle"
     }
   ],

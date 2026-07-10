@@ -1,56 +1,24 @@
 (function () {
   'use strict';
 
-  let SELECTORS = {
-    input: [
-      'rich-textarea div[contenteditable="true"]',
-      'div[contenteditable="true"][data-placeholder]',
-      '.ql-editor[contenteditable="true"]',
-      'div[contenteditable="true"]'
-    ],
-    sendBtn: [
-      'button[aria-label="Send message"]',
-      'button[aria-label*="发送"]',
-      'button.send-button',
-      'button[jsname="hRZeKc"]',
-      'button[type="submit"]'
-    ],
-    stopBtn: [
-      'button[aria-label="Stop response"]',
-      'button[aria-label="Stop generating"]',
-      'button[aria-label*="停止"]',
-      'button[aria-label*="stop" i]',
-      'button[jsname="l4Nn6e"]'
-    ],
-    newChatBtn: [
-      'button[aria-label="New chat"]',
-      'button[aria-label*="new chat" i]',
-      'button[aria-label*="新对话"]',
-      'button[aria-label*="新建"]',
-      'a[href="/app"]',
-      'button[data-test-id="new-chat-button"]'
-    ],
-    responseContainerAll: [
-      'model-response',
-      'response-container',
-      '[data-response-index]'
-    ],
-    responseText: [
-      '.model-response-text',
-      '.response-container-content',
-      'message-content .markdown',
-      '.markdown'
-    ]
-  };
+  let SELECTORS = DEFAULT_SELECTORS;
 
-  chrome.storage.local.get('mirrorAiSelectors', ({ mirrorAiSelectors }) => {
-    if (mirrorAiSelectors) { SELECTORS = Object.assign({}, SELECTORS, mirrorAiSelectors); }
+  chrome.storage.local.get('aiSelectors', ({ aiSelectors }) => {
+    if (aiSelectors) { SELECTORS = Object.assign({}, SELECTORS, aiSelectors); }
   });
 
   // ── 工具 ──────────────────────────────────────────────────
   function findEl(selectorList, root = document) {
     for (const sel of selectorList) {
-      try { const el = root.querySelector(sel); if (el) { return el; } } catch { /* skip */ }
+      try {
+        const el = root.querySelector(sel);
+        if (el) {
+          // console.log(`[MirrorAi] ✅ 找到元素，使用选择器: ${sel}`);
+          return el;
+        } else {
+          // console.log(`[MirrorAi] ❌ 未找到元素，选择器: ${sel}`);
+        }
+      } catch { /* skip */ }
     }
     return null;
   }
@@ -67,6 +35,17 @@
     return { sel: SELECTORS.responseContainerAll[0], count: 0 };
   }
 
+  //  走 aiResponse 通道，不经过 aiError，后端不会触发VSCode右下角弹窗
+  function createErrorResponse(message) {
+    return {
+      error: true,
+      errorMessage: message,
+      markdown: '',
+      text: '',
+      isHtml: false
+    };
+  }
+
   // ── 写入输入框 ─────────────────────────────────────────────
   async function writeToInput(input, text) {
     input.scrollIntoView({ block: 'center', behavior: 'instant' });
@@ -74,7 +53,7 @@
     input.focus();
     await sleep(150);
 
-    const sel   = window.getSelection();
+    const sel = window.getSelection();
     const range = document.createRange();
     range.selectNodeContents(input);
     sel.removeAllRanges();
@@ -103,21 +82,23 @@
 
   // ── 发送到 Gemini ─────────────────────────────────────────
   async function sendToGemini(prompt) {
+    isCancelled = false;
     let input = null;
     for (let i = 0; i < 20; i++) {
       input = findEl(SELECTORS.input);
       if (input) { break; }
       await sleep(500);
     }
+    
     if (!input) {
-      throw new Error('找不到 Gemini 输入框，请确认页面已完全加载并已登录，或在插件高级配置中更新选择器');
+      return createErrorResponse('找不到 Gemini 输入框，请确认页面已完全加载并已登录，或在插件高级配置中更新选择器');
     }
 
     const before = countExistingResponses();
     await writeToInput(input, prompt);
 
     if (!(input.textContent || '').trim()) {
-      throw new Error('文本写入输入框失败，请在插件高级配置中更新选择器');
+      return createErrorResponse('文本写入输入框失败，请在插件高级配置中更新选择器');
     }
 
     let sendBtn = null;
@@ -161,7 +142,7 @@
       await sleep(1500);
       const cur = document.querySelectorAll(before.sel).length;
       if (cur <= before.count) {
-        throw new Error('Gemini 未开始响应，请检查：①已登录 ②Gemini 页面正常 ③选择器配置正确');
+        return createErrorResponse('Gemini 未开始响应，请检查：①已登录 ②Gemini 页面正常 ③选择器配置正确');
       }
     }
 
@@ -190,9 +171,9 @@
       return { markdown: '（未能提取回复内容，请在插件高级配置中更新「回复容器选择器」）', text: '', isHtml: false };
     }
 
-    const textEl  = findEl(SELECTORS.responseText, targetEl) || targetEl;
+    const textEl = findEl(SELECTORS.responseText, targetEl) || targetEl;
     const markdown = htmlToMarkdown(textEl);
-    const text     = (textEl.innerText || textEl.textContent || '').trim();
+    const text = (textEl.innerText || textEl.textContent || '').trim();
     return { markdown, text, isHtml: false };
   }
 
@@ -213,7 +194,7 @@
     // 从代码块容器中提取语言名
     function extractLang(wrapper) {
       const codeEl = wrapper.querySelector('code');
-      const preEl  = wrapper.querySelector('pre');
+      const preEl = wrapper.querySelector('pre');
 
       let lang = ((codeEl?.className || '').match(/language-(\S+)/) || [])[1] || '';
       if (lang) { return lang.toLowerCase(); }
@@ -237,7 +218,7 @@
       const children = () => Array.from(node.childNodes).map(walk).join('');
 
       if (tag === 'code-block' || tag.endsWith('-code-block') || tag.includes('codeblock')) {
-        const preEl  = node.querySelector('pre');
+        const preEl = node.querySelector('pre');
         const codeEl = node.querySelector('code');
         if (preEl || codeEl) {
           const lang = extractLang(node);
@@ -324,6 +305,7 @@
 
   // ── 监听 Background 消息 ─────────────────────────────────
   let isProcessing = false;
+  let isCancelled = false;
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     switch (msg.type) {
@@ -336,8 +318,15 @@
         isProcessing = true;
         sendResponse({ ok: true, status: 'processing' });
         sendToGemini(msg.prompt)
-          .then(data => { isProcessing = false; chrome.runtime.sendMessage({ type: 'aiResponse', data }); })
-          .catch(err  => { isProcessing = false; console.error('[MirrorAi]', err); chrome.runtime.sendMessage({ type: 'aiError', message: err.message || '未知错误' }); });
+          .then(data => {
+            isProcessing = false;
+            if (isCancelled) {
+              isCancelled = false;
+              return;
+            }
+            chrome.runtime.sendMessage({ type: 'aiResponse', data });
+          })
+          .catch(err => { isProcessing = false; console.error('[MirrorAi]', err); chrome.runtime.sendMessage({ type: 'aiError', message: err.message || '未知错误' }); });
         return false;
       }
 
@@ -350,6 +339,14 @@
         sendResponse({ ok: true });
         return false;
 
+      case 'cancel': {
+        isCancelled = true;
+        const stopBtn = findEl(SELECTORS.stopBtn);
+        if (stopBtn) { stopBtn.click(); }
+        sendResponse({ ok: true });
+        return false;
+      }
+
       case 'getStatus':
         sendResponse({ ready: !!findEl(SELECTORS.input), processing: isProcessing });
         return false;
@@ -358,7 +355,7 @@
   });
 
   // ── 页面就绪通知 ──────────────────────────────────────────
-  function notifyReady(ready) { chrome.runtime.sendMessage({ type: 'aiStatus', ready }).catch(() => {}); }
+  function notifyReady(ready) { chrome.runtime.sendMessage({ type: 'aiStatus', ready }).catch(() => { }); }
   new MutationObserver(() => notifyReady(!!findEl(SELECTORS.input))).observe(document.body, { childList: true, subtree: true });
   setTimeout(() => notifyReady(!!findEl(SELECTORS.input)), 2000);
 

@@ -7,19 +7,23 @@
 
   const state = {
     contexts: [],
-    isConnected: false,
     aiReady: false,
+    isConnected: false,
     sending: false
   };
 
   let responseTimer = null;
-  const RESPONSE_TIMEOUT_MS = 3 * 60 * 1000;
+  let warningTimer  = null;
+  const WARN_TIMEOUT_MS     = 60 * 1000;       // 1 分钟提醒
+  const RESPONSE_TIMEOUT_MS = 3 * 60 * 1000;   // 3 分钟超时
 
   // ── DOM ──────────────────────────────────────────────────
   const $           = id => document.getElementById(id);
   const chatList    = $('chat-list');
   const emptyState  = $('empty-state');
   const chatArea    = $('chat-area');
+  const scrollTrack = $('chat-scrollbar-track');
+  const scrollThumb = $('chat-scrollbar-thumb');
   const qInput      = $('question-input');
   const ctxStrip    = $('context-strip');
   const ctxTagsEl   = $('context-tags');
@@ -52,8 +56,10 @@
   function setConnected(on) {
     state.isConnected = on;
     connDot.className = 'status-dot ' + (on ? 'connected' : 'disconnected');
-    connDot.querySelector('.label').textContent = on ? 'Chrome 已连接' : '未连接';
-    btnSend.disabled = !on || state.sending;
+    connDot.querySelector('.label').textContent = on ? 'Chrome 已连接' : 'Chrome 未连接';
+    if (!btnSend._isStopMode) {
+      btnSend.disabled = !on || state.sending;
+    }
   }
 
   function handleStatusUpdate(data) {
@@ -76,22 +82,17 @@
     tag._ctxId = ctx.id;
 
     const label = ctx.type === 'snippet'
-      ? `${ctx.fileName}:${ctx.startLine}-${ctx.endLine}`
-      : ctx.fileName;
+      ? `${ctx.fileName}:${ctx.startLine}-${ctx.endLine}` : ctx.fileName;
 
     const mkSpan = (cls, text, title) => {
       const s = document.createElement('span');
-      s.className   = cls;
-      s.textContent = text;
+      s.className = cls; s.textContent = text;
       if (title) s.title = title;
       return s;
     };
 
     const rmBtn = document.createElement('button');
-    rmBtn.className   = 'ctx-remove';
-    rmBtn.title       = '移除';
-    rmBtn.textContent = '✕';
-
+    rmBtn.className = 'ctx-remove'; rmBtn.title = '移除'; rmBtn.textContent = '✕';
     rmBtn.addEventListener('click', e => {
       e.stopPropagation();
       tag.remove();
@@ -162,15 +163,22 @@
 
     qInput.value = '';
     autoResize();
-    clearResponseTimer();
+    clearAllTimers();
     if (state.sending) { state.sending = false; setSendingState(false); }
 
     vscode.postMessage({ type: 'newChat' });
     qInput.focus();
   });
 
-  // ── 发送 ─────────────────────────────────────────────────
-  btnSend.addEventListener('click', sendQuestion);
+  // ── 发送按钮 ───────────────────────────────────────────────
+  btnSend.addEventListener('click', () => {
+    if (btnSend._isStopMode) {
+      vscode.postMessage({ type: 'cancelRequest' });
+      abortSending('已手动停止等待回复，可重新发送问题');
+    } else {
+      sendQuestion();
+    }
+  });
 
   function sendQuestion() {
     if (state.sending) return;
@@ -189,7 +197,7 @@
     qInput.value = '';
     autoResize();
 
-    appendUserBubble(msg.question, msg.contexts || []);
+    appendUserBubble(msg.question, msg.contexts || [], msg.fullPrompt || '');
 
     ctxTagsEl.innerHTML = '';
     ctxStrip.classList.add('hidden');
@@ -197,38 +205,89 @@
 
     appendLoadingBubble();
     startResponseTimer();
+    setWaitingState();
   }
 
   // ── 回复 ─────────────────────────────────────────────────
   function handleAIResponse(data) {
-    clearResponseTimer();
+    if (!state.sending) return;
+    clearAllTimers();
     state.sending = false;
     setSendingState(false);
     removeLoadingBubble();
     if (!data) return;
-    appendAssistantBubble(data.markdown || data.text || data.html || '', !!data.isHtml);
+    if (data.error) {
+      appendErrorBubble(data.errorMessage || '未知错误');
+    } else {
+      appendAssistantBubble(data.markdown || data.text || data.html || '', !!data.isHtml);
+    }
     scrollToBottom();
   }
 
+  // ── 中止发送 ─────────────────────────────────────────────
   function abortSending(msg) {
-    clearResponseTimer();
+    clearAllTimers();
     state.sending = false;
     setSendingState(false);
     removeLoadingBubble();
     appendErrorBubble(msg);
   }
 
-  // ── 超时 ─────────────────────────────────────────────────
+  // ── 计时器 ───────────────────────────────────────────────
   function startResponseTimer() {
-    clearResponseTimer();
+    clearAllTimers();
+
+    // 1 分钟：提醒检查浏览器状态
+    warningTimer = setTimeout(() => {
+      if (state.sending) {
+        appendWarnBubble('已等待 1 分钟未收到回复，请确认浏览器没有最小化');
+      }
+    }, WARN_TIMEOUT_MS);
+
+    // 3 分钟：超时终止
     responseTimer = setTimeout(() => {
-      if (state.sending) abortSending(`等待回复超时（${RESPONSE_TIMEOUT_MS / 60000} 分钟），请检查 Gemini 页面状态后重新发送`);
+      if (state.sending) {
+        abortSending('等待回复超时（3 分钟），请检查 Gemini 页面状态后重新发送');
+      }
     }, RESPONSE_TIMEOUT_MS);
   }
-  function clearResponseTimer() { if (responseTimer) { clearTimeout(responseTimer); responseTimer = null; } }
+
+  function clearAllTimers() {
+    if (responseTimer) { clearTimeout(responseTimer); responseTimer = null; }
+    if (warningTimer)  { clearTimeout(warningTimer);  warningTimer  = null; }
+  }
+
+  // ── 按钮状态 ─────────────────────────────────────────────
+
+  // 发送中（短暂过渡状态）
+  function setSendingState(sending) {
+    btnSend._isStopMode = false;
+    btnSend.classList.remove('stop-mode', 'loading');
+    btnSend.disabled = sending || !state.isConnected;
+    if (sending) {
+      btnSend.classList.add('loading');
+      btnSend.innerHTML = '<span class="spin">⟳</span> 发送中…';
+    } else {
+      btnSend.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="22" y1="2" x2="11" y2="13"/>
+        <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+      </svg> 发送`;
+    }
+  }
+
+  // 等待回复中（可点击停止）
+  function setWaitingState() {
+    btnSend._isStopMode = true;
+    btnSend.disabled = false;
+    btnSend.classList.remove('loading');
+    btnSend.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <rect x="3" y="3" width="18" height="18" rx="2"/>
+    </svg> 停止等待`;
+  }
 
   // ── 气泡 ─────────────────────────────────────────────────
-  function appendUserBubble(question, contexts) {
+
+  function appendUserBubble(question, contexts, fullPrompt) {
     const row = document.createElement('div');
     row.className = 'chat-row user-row';
 
@@ -245,9 +304,51 @@
       <div class="bubble user-bubble">
         ${ctxHtml}
         ${question ? `<div class="bubble-text">${escHtml(question)}</div>` : ''}
-        <div class="bubble-time">${now()}</div>
+        <div class="bubble-footer">
+          <button class="user-copy-btn">复制</button>
+          <span class="bubble-time">${now()}</span>
+        </div>
       </div>`;
+
     chatList.appendChild(row);
+
+    const userCopyBtn = row.querySelector('.user-copy-btn');
+    if (userCopyBtn) {
+      const textToCopy = fullPrompt || question;
+      userCopyBtn.addEventListener('click', function () {
+        copyText(textToCopy);
+        this.textContent = '已复制';
+        setTimeout(() => { this.textContent = '复制'; }, 2000);
+      });
+    }
+
+    // 长消息折叠：超过 3 行时自动折叠，支持展开/折叠
+    if (question) {
+      const textEl = row.querySelector('.bubble-text');
+      if (textEl) {
+        textEl.classList.add('bubble-text-collapsible');
+        requestAnimationFrame(() => {
+          if (textEl.scrollHeight > textEl.clientHeight + 4) {
+            // 内容超出 3 行，添加展开/折叠按钮
+            const toggleBtn = document.createElement('button');
+            toggleBtn.className   = 'bubble-toggle';
+            toggleBtn.textContent = '展开 ▶';
+            let expanded = false;
+            toggleBtn.addEventListener('click', () => {
+              expanded = !expanded;
+              textEl.classList.toggle('bubble-text-expanded', expanded);
+              toggleBtn.textContent = expanded ? '折叠 ▼' : '展开 ▶';
+              updateScrollbar();
+            });
+            row.querySelector('.user-bubble').insertBefore(toggleBtn, row.querySelector('.bubble-footer'));
+          } else {
+            // 内容本身就在 3 行内，取消折叠限制
+            textEl.classList.remove('bubble-text-collapsible');
+          }
+        });
+      }
+    }
+
     scrollToBottom();
   }
 
@@ -279,6 +380,9 @@
         <div class="bubble-content markdown-body">${rendered}</div>
         <div class="bubble-time">${now()}</div>
       </div>`;
+
+    const bubbleContent = row.querySelector('.bubble-content');
+    bubbleContent.dataset.markdown = content;
 
     row.querySelectorAll('pre').forEach(pre => {
       const codeEl = pre.querySelector('code');
@@ -324,8 +428,8 @@
     });
 
     row.querySelector('.copy-all-btn').addEventListener('click', function () {
-      copyText(row.querySelector('.bubble-content').innerText);
-      this.textContent = '已复制!';
+      copyText(bubbleContent.dataset.markdown || bubbleContent.innerText);
+      this.textContent = '已复制';
       setTimeout(() => { this.textContent = '复制全文'; }, 2000);
     });
 
@@ -342,22 +446,19 @@
     scrollToBottom();
   }
 
-  // ── 辅助 ─────────────────────────────────────────────────
-  function setSendingState(sending) {
-    btnSend.disabled = sending || !state.isConnected;
-    btnSend.classList.toggle('loading', sending);
-    if (sending) {
-      btnSend.innerHTML = '<span class="spin">⟳</span> 发送中…';
-    } else {
-      btnSend.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="22" y1="2" x2="11" y2="13"/>
-        <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-      </svg> 发送`;
-    }
+  // 警告气泡（黄色，用于超时提醒等非致命提示）
+  function appendWarnBubble(message) {
+    hideEmpty();
+    const row = document.createElement('div');
+    row.className = 'chat-row warn-row';
+    row.innerHTML = `<div class="bubble warn-bubble">⏱ ${escHtml(message)}</div>`;
+    chatList.appendChild(row);
+    scrollToBottom();
   }
 
+  // ── 辅助 ─────────────────────────────────────────────────
   function hideEmpty()      { emptyState.style.display = 'none'; }
-  function scrollToBottom() { chatArea.scrollTop = chatArea.scrollHeight; }
+  function scrollToBottom() { chatArea.scrollTop = chatArea.scrollHeight; updateScrollbar(); }
   function now()            { return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }); }
   function escHtml(s)       { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function copyText(t)      { navigator.clipboard?.writeText(t).catch(() => fbCopy(t)) || fbCopy(t); }
@@ -366,6 +467,71 @@
     Object.assign(a.style, { position: 'fixed', opacity: '0' });
     document.body.appendChild(a); a.select(); document.execCommand('copy'); document.body.removeChild(a);
   }
+
+  // ── 自定义滚动条 ──────────────────────────────────────────
+  function updateScrollbar() {
+    if (!scrollTrack || !scrollThumb) return;
+    const trackH    = scrollTrack.clientHeight;
+    const contentH  = chatArea.scrollHeight;
+    const visibleH  = chatArea.clientHeight;
+
+    if (contentH <= visibleH) {
+      scrollThumb.style.height = '0px';
+      return;
+    }
+
+    const thumbH     = Math.max((visibleH / contentH) * trackH, 28);
+    const maxTop     = trackH - thumbH;
+    const ratio      = chatArea.scrollTop / (contentH - visibleH);
+    scrollThumb.style.height = thumbH + 'px';
+    scrollThumb.style.top    = (ratio * maxTop) + 'px';
+  }
+
+  chatArea.addEventListener('scroll', updateScrollbar);
+  window.addEventListener('resize', updateScrollbar);
+
+  // 拖动滑块
+  let isDragging       = false;
+  let dragStartY       = 0;
+  let dragStartScrollT = 0;
+
+  scrollThumb.addEventListener('mousedown', e => {
+    isDragging       = true;
+    dragStartY       = e.clientY;
+    dragStartScrollT = chatArea.scrollTop;
+    scrollThumb.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    const trackH    = scrollTrack.clientHeight;
+    const thumbH    = scrollThumb.clientHeight;
+    const maxTop    = trackH - thumbH;
+    const scrollableH = chatArea.scrollHeight - chatArea.clientHeight;
+    const delta     = e.clientY - dragStartY;
+    chatArea.scrollTop = dragStartScrollT + (delta / maxTop) * scrollableH;
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!isDragging) return;
+    isDragging = false;
+    scrollThumb.classList.remove('dragging');
+    document.body.style.userSelect = '';
+  });
+
+  // 点击轨道跳转
+  scrollTrack.addEventListener('mousedown', e => {
+    if (e.target === scrollThumb) return;
+    const rect      = scrollTrack.getBoundingClientRect();
+    const clickY    = e.clientY - rect.top;
+    const thumbH    = scrollThumb.clientHeight;
+    const maxTop    = scrollTrack.clientHeight - thumbH;
+    const targetTop = Math.min(Math.max(clickY - thumbH / 2, 0), maxTop);
+    const scrollableH = chatArea.scrollHeight - chatArea.clientHeight;
+    chatArea.scrollTop = (targetTop / maxTop) * scrollableH;
+  });
 
   // ── Markdown 渲染器 ───────────────────────────────────────
   function renderMarkdown(md) {
@@ -396,9 +562,9 @@
     md = md.replace(/^(\s*)[-*+]\s(.+)$/gm,(_,i,t)=>`\x00L${Math.floor((i||'').length/2)} ${t}\x00`)
            .replace(/^(\s*)\d+\.\s(.+)$/gm,(_,i,t)=>`\x00O${Math.floor((i||'').length/2)} ${t}\x00`);
     md = md.replace(/(\x00L\d+ .+\x00\n?)+/g,b=>'<ul>'+(b.match(/\x00L\d+ (.+)\x00/g)||[])
-                    .map(x=>`<li>${x.replace(/\x00L\d+ /,'').replace(/\x00$/,'')}</li>`).join('')+'</ul>');
+           .map(x=>`<li>${x.replace(/\x00L\d+ /,'').replace(/\x00$/,'')}</li>`).join('')+'</ul>');
     md = md.replace(/(\x00O\d+ .+\x00\n?)+/g,b=>'<ol>'+(b.match(/\x00O\d+ (.+)\x00/g)||[])
-                    .map(x=>`<li>${x.replace(/\x00O\d+ /,'').replace(/\x00$/,'')}</li>`).join('')+'</ol>');
+           .map(x=>`<li>${x.replace(/\x00O\d+ /,'').replace(/\x00$/,'')}</li>`).join('')+'</ol>');
 
     md = md.replace(/^&gt;\s(.+)$/gm,'<blockquote>$1</blockquote>');
 
@@ -414,8 +580,7 @@
 
     fences.forEach(({lang,code},i)=>{
       const safe=code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      const cls=escHtml(lang||'text');
-      md=md.replace(`\x00F${i}\x00`,`<pre><code class="language-${cls}">${safe}</code></pre>`);
+      md=md.replace(`\x00F${i}\x00`,`<pre><code class="language-${escHtml(lang||'text')}">${safe}</code></pre>`);
     });
 
     return md;
@@ -433,6 +598,7 @@
     return d.innerHTML;
   }
 
+  updateScrollbar();
   vscode.postMessage({ type: 'ready' });
 
 })();

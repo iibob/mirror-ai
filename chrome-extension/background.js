@@ -6,7 +6,7 @@ const HEARTBEAT_INTERVAL = 20000;
 let ws             = null;
 let reconnectTimer = null;
 let heartbeatTimer = null;
-let chatTabId      = null;
+let aiTabId        = null;
 
 // ── 启动 ──────────────────────────────────────────────────
 connectWebSocket();
@@ -69,7 +69,7 @@ function startHeartbeat() {
   heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL);
 }
 function stopHeartbeat() { if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; } }
-function sendHeartbeat()  { sendToVSCode({ type: 'ping' }); }
+function sendHeartbeat() { sendToVSCode({ type: 'ping' }); }
 
 // ── 处理来自 VSCode 的消息 ─────────────────────────────────
 async function handleVSCodeMessage(msg) {
@@ -79,10 +79,13 @@ async function handleVSCodeMessage(msg) {
       broadcastStatus();
       break;
     case 'question':
-      await dispatchQuestionToChatTab(msg.data?.prompt || '');
+      await dispatchQuestionToAI(msg.data?.prompt || '');
       break;
     case 'newChat':
       await handleNewChat();
+      break;
+    case 'cancel':
+      await handleCancel();
       break;
     default:
       console.warn('[MirrorAi] 未知消息:', msg.type);
@@ -90,11 +93,15 @@ async function handleVSCodeMessage(msg) {
 }
 
 // ── 发送问题到聊天页面 ─────────────────────────────────────
-async function dispatchQuestionToChatTab(prompt) {
+async function dispatchQuestionToAI(prompt) {
   try {
-    const tab = await getChatTab();
-    chatTabId = tab.id;
+    const tab = await getAITab();
+    aiTabId = tab.id;
     await waitForTabReady(tab.id, 3000);
+
+    // 切换标签页为活跃，使 Gemini 页面 visibilityState 变为 visible，避免回复完成后停止按钮不会消失，导致无法回传
+    await chrome.tabs.update(tab.id, { active: true });
+    await new Promise(r => setTimeout(r, 500));
 
     const result = await chrome.tabs.sendMessage(tab.id, { type: 'sendToGemini', prompt });
     if (result?.error) { throw new Error(result.error); }
@@ -111,11 +118,11 @@ async function handleNewChat() {
     if (tabs.length === 0) {
       // 没有标签页，后台新开一个
       const t = await chrome.tabs.create({ url: 'https://gemini.google.com/app', active: false });
-      chatTabId = t.id;
+      aiTabId = t.id;
       return;
     }
     const tab = tabs[0];
-    chatTabId = tab.id;
+    aiTabId = tab.id;
 
     // 先尝试让 content script 点击"新建"按钮
     chrome.tabs.sendMessage(tab.id, { type: 'newChat' }, (resp) => {
@@ -129,8 +136,27 @@ async function handleNewChat() {
   }
 }
 
+// ── 停止等待 ──────────────────────────────────────────────
+async function handleCancel() {
+  try {
+    if (aiTabId) {
+      chrome.tabs.sendMessage(aiTabId, { type: 'cancel' }, () => {
+        void chrome.runtime.lastError;
+      });
+    }
+  } catch (e) {
+    console.error('[MirrorAi] 取消失败:', e);
+  }
+  // 延迟刷新 Gemini 页面，确保后续对话正常
+  if (aiTabId) {
+    setTimeout(() => {
+      chrome.tabs.reload(aiTabId).catch(() => { });
+    }, 800);
+  }
+}
+
 // ── 获取标签页 ─────────────────────────────────────────
-async function getChatTab() {
+async function getAITab() {
   const tabs = await chrome.tabs.query({ url: 'https://gemini.google.com/*' });
   if (tabs.length > 0) {
     return tabs[0];
@@ -172,7 +198,7 @@ function waitForTabReady(tabId, timeout) {
 
 // ── 接收 Content Script 消息 ──────────────────────────────
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (sender.tab) { chatTabId = sender.tab.id; }
+  if (sender.tab) { aiTabId = sender.tab.id; }
 
   switch (msg.type) {
     case 'aiResponse':
@@ -203,7 +229,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true });
         } else {
           chrome.tabs.create({ url: 'https://gemini.google.com/', active: true }, (t) => {
-            chatTabId = t.id;
+            aiTabId = t.id;
             sendResponse({ ok: true });
           });
         }
@@ -211,8 +237,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true;
     case 'updateSelectors':
       chrome.storage.local.set({ aiSelectors: msg.selectors });
-      if (chatTabId) {
-        chrome.tabs.sendMessage(chatTabId, { type: 'updateSelectors', selectors: msg.selectors });
+      if (aiTabId) {
+        chrome.tabs.sendMessage(aiTabId, { type: 'updateSelectors', selectors: msg.selectors });
       }
       sendResponse({ ok: true });
       break;
@@ -222,17 +248,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 // ── 状态 ──────────────────────────────────────────────────
 function getCurrentStatus() {
-  return { vsConnected: ws?.readyState === WebSocket.OPEN, chatTabId };
+  return { vsConnected: ws?.readyState === WebSocket.OPEN, aiTabId };
 }
 function broadcastStatus() {
   const status = getCurrentStatus();
-  chrome.runtime.sendMessage({ type: 'statusChanged', status }).catch(() => {});
+  chrome.runtime.sendMessage({ type: 'statusChanged', status }).catch(() => { });
   sendToVSCode({ type: 'status', data: { chromeConnected: true } });
 }
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (tabId === chatTabId) {
-    chatTabId = null;
+  if (tabId === aiTabId) {
+    aiTabId = null;
     sendToVSCode({ type: 'status', data: { aiReady: false } });
   }
 });

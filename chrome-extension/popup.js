@@ -1,25 +1,3 @@
-const DEFAULT_SELECTORS = {
-  input: [
-    'rich-textarea div[contenteditable="true"]',
-    'div[contenteditable="true"][data-placeholder]',
-    '.ql-editor[contenteditable="true"]'
-  ],
-  sendBtn: [
-    'button[aria-label="Send message"]',
-    'button[aria-label*="发送"]',
-    'button.send-button'
-  ],
-  stopBtn: [
-    'button[aria-label="Stop response"]',
-    'button[aria-label="Stop generating"]',
-    'button[aria-label*="停止"]'
-  ],
-  responseContainer: [
-    'model-response:last-of-type',
-    '.conversation-container model-response:last-child'
-  ]
-};
-
 // ── DOM ───────────────────────────────────────────────────
 const dotVscode     = document.getElementById('dot-vscode');
 const descVscode    = document.getElementById('desc-vscode');
@@ -120,12 +98,12 @@ toggleAdv.addEventListener('click', () => {
 
 // ── 选择器加载与保存 ──────────────────────────────────────
 function loadSelectors() {
-  chrome.storage.local.get('mirrorAiSelectors', ({ mirrorAiSelectors }) => {
-    const sel = mirrorAiSelectors || DEFAULT_SELECTORS;
+  chrome.storage.local.get('aiSelectors', ({ aiSelectors }) => {
+    const sel = aiSelectors || DEFAULT_SELECTORS;
     selInput.value    = toText(sel.input);
     selSend.value     = toText(sel.sendBtn);
     selStop.value     = toText(sel.stopBtn);
-    selResponse.value = toText(sel.responseContainer);
+    selResponse.value = toText(sel.responseContainerAll);
   });
 }
 
@@ -139,10 +117,10 @@ function fromText(text) {
 
 btnSaveSel.addEventListener('click', () => {
   const selectors = {
-    input:             fromText(selInput.value),
-    sendBtn:           fromText(selSend.value),
-    stopBtn:           fromText(selStop.value),
-    responseContainer: fromText(selResponse.value)
+    input:                fromText(selInput.value),
+    sendBtn:              fromText(selSend.value),
+    stopBtn:              fromText(selStop.value),
+    responseContainerAll: fromText(selResponse.value)
   };
 
   chrome.runtime.sendMessage({ type: 'updateSelectors', selectors });
@@ -151,11 +129,11 @@ btnSaveSel.addEventListener('click', () => {
 });
 
 btnResetSel.addEventListener('click', () => {
-  chrome.storage.local.remove('mirrorAiSelectors');
+  chrome.storage.local.remove('aiSelectors');
   selInput.value    = toText(DEFAULT_SELECTORS.input);
   selSend.value     = toText(DEFAULT_SELECTORS.sendBtn);
   selStop.value     = toText(DEFAULT_SELECTORS.stopBtn);
-  selResponse.value = toText(DEFAULT_SELECTORS.responseContainer);
+  selResponse.value = toText(DEFAULT_SELECTORS.responseContainerAll);
   chrome.runtime.sendMessage({ type: 'updateSelectors', selectors: DEFAULT_SELECTORS });
   saveTip.classList.remove('hidden');
   saveTip.textContent = '✓ 已恢复默认选择器';

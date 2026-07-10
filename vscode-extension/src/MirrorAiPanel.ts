@@ -91,6 +91,10 @@ export class MirrorAiPanel {
         this.wsServer.broadcast({ type: 'newChat' });
         break;
 
+      case 'cancelRequest':
+        this.wsServer.broadcast({ type: 'cancel' });
+        break;
+
       case 'insertCode':
         await insertCodeAtCursor(msg.code as string, msg.language as string);
         break;
@@ -100,9 +104,7 @@ export class MirrorAiPanel {
         if (editor) {
           this.addFileFromEditor(editor);
         } else {
-          vscode.window.showWarningMessage(
-            'Mirror Ai：没有找到活跃的编辑器，请先在代码文件中点击一下，再点此按钮'
-          );
+          vscode.window.showWarningMessage('Mirror Ai：没有找到活跃的编辑器，请先在代码文件中点击一下，再点此按钮');
         }
         break;
       }
@@ -110,13 +112,9 @@ export class MirrorAiPanel {
       case 'addSelection': {
         const editor = this.lastEditor ?? vscode.window.activeTextEditor;
         if (!editor) {
-          vscode.window.showWarningMessage(
-            'Mirror Ai：没有找到活跃的编辑器，请先在代码文件中选中代码，再点此按钮'
-          );
+          vscode.window.showWarningMessage('Mirror Ai：没有找到活跃的编辑器，请先在代码文件中选中代码，再点此按钮');
         } else if (editor.selection.isEmpty) {
-          vscode.window.showWarningMessage(
-            'Mirror Ai：当前编辑器没有选中任何代码，请先选中后再点此按钮'
-          );
+          vscode.window.showWarningMessage('Mirror Ai：当前编辑器没有选中任何代码，请先选中后再点此按钮');
         } else {
           this.addSelectionFromEditor(editor);
         }
@@ -239,8 +237,9 @@ export class MirrorAiPanel {
       parts.push(userQuestion.trim());
     }
 
-    this.wsServer.broadcast({ type: 'question', data: { prompt: parts.join('\n') } });
-    this.postMessage({ type: 'questionSent', question: userQuestion, contexts: ctxSummary });
+    const fullPrompt = parts.join('\n');
+    this.wsServer.broadcast({ type: 'question', data: { prompt: fullPrompt } });
+    this.postMessage({ type: 'questionSent', question: userQuestion, contexts: ctxSummary, fullPrompt });
   }
 
   // ── 通用方法 ─────────────────────────────────────────────
@@ -280,7 +279,7 @@ export class MirrorAiPanel {
   <div id="app">
     <div id="status-bar">
       <div id="conn-status" class="status-dot disconnected" title="Chrome 插件连接状态">
-        <span class="dot"></span><span class="label">未连接</span>
+        <span class="dot"></span><span class="label">Chrome 未连接</span>
       </div>
       <div id="ai-status" class="status-dot disconnected" title="Gemini 页面状态">
         <span class="dot"></span><span class="label">Gemini 未就绪</span>
@@ -292,13 +291,17 @@ export class MirrorAiPanel {
       </button>
     </div>
 
-    <div id="chat-area">
-      <div id="chat-list">
-        <div id="empty-state">
-          <div class="empty-icon">✨</div>
-          <p class="empty-title">Mirror Ai</p>
-          <p class="empty-hint">选择代码或文件，输入问题，发送给 Gemini</p>
+    <div id="chat-area-wrapper">
+      <div id="chat-area">
+        <div id="chat-list">
+          <div id="empty-state">
+            <p class="empty-title">Mirror Ai</p>
+            <p class="empty-hint">选择代码或文件，输入问题，发送给 Gemini</p>
+          </div>
         </div>
+      </div>
+      <div id="chat-scrollbar-track">
+        <div id="chat-scrollbar-thumb"></div>
       </div>
     </div>
 
@@ -329,7 +332,7 @@ export class MirrorAiPanel {
         </button>
       </div>
       <div id="textarea-wrap">
-        <textarea id="question-input" placeholder="输入问题……" rows="3" spellcheck="false"></textarea>
+        <textarea id="question-input" placeholder="输入问题 ..." rows="3" spellcheck="false"></textarea>
       </div>
       <div id="presets">
         <span class="preset-label">快捷：</span>

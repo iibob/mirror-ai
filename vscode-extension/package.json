@@ -2,8 +2,8 @@
   "name": "vscode-mirror-ai",
   "displayName": "Mirror Ai",
   "description": "将 VSCode 与 Gemini 连接，实现 AI 辅助编程",
-  "version": "1.0.0",
-  "publisher": "your-publisher-name",
+  "version": "1.1.0",
+  "publisher": "local",
   "engines": {
     "vscode": "^1.85.0"
   },
