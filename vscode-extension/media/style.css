@@ -367,9 +367,21 @@ html, body {
   padding: 1px 5px;
   border-radius: 3px;
 }
+.markdown-body .table-scroll {
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.markdown-body .table-scroll::-webkit-scrollbar { height: 6px; }
+.markdown-body .table-scroll::-webkit-scrollbar-track { background: transparent; }
+.markdown-body .table-scroll::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-background, rgba(128,128,128,0.3));
+  border-radius: 3px;
+}
+.markdown-body .table-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-hoverBackground, rgba(128,128,128,0.5));
+}
 .markdown-body table {
   border-collapse: collapse;
-  margin: 8px 0;
   width: 100%;
   font-size: 12px;
 }
@@ -377,6 +389,7 @@ html, body {
   border: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.3));
   padding: 5px 10px;
   text-align: left;
+  white-space: nowrap;
 }
 .markdown-body th { background: rgba(128,128,128,0.1); font-weight: 600; }
 

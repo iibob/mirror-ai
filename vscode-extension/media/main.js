@@ -568,9 +568,35 @@
 
     md = md.replace(/^&gt;\s(.+)$/gm,'<blockquote>$1</blockquote>');
 
+    md = md.replace(
+      /^(\|.+\|)\n(\|[\s:|-]+\|)\n((?:\|.+\|\n?)+)/gm,
+      (_, headerLine, _sepLine, bodyLines) => {
+        const splitRow = line => line
+          .trim()
+          .replace(/^\|/, '')
+          .replace(/\|$/, '')
+          .split('|')
+          .map(cell => cell.trim());
+
+        const headers = splitRow(headerLine);
+        const rows = bodyLines.trim().split('\n').map(splitRow);
+
+        let table = '<table><thead><tr>';
+        headers.forEach(h => { table += `<th>${h}</th>`; });
+        table += '</tr></thead><tbody>';
+        rows.forEach(row => {
+          table += '<tr>';
+          row.forEach(cell => { table += `<td>${cell}</td>`; });
+          table += '</tr>';
+        });
+        table += '</tbody></table>';
+        return `<div class="table-scroll">${table}</div>`;
+      }
+    );
+    
     md = md.split(/\n{2,}/).map(b=>{
       b=b.trim(); if(!b)return'';
-      if(/^<(h[1-6]|ul|ol|blockquote|hr|pre|div)/.test(b))return b;
+      if(/^<(h[1-6]|ul|ol|blockquote|hr|pre|div|table)/.test(b))return b;
       return '<p>'+b.replace(/\n/g,'<br>')+'</p>';
     }).join('\n');
 
